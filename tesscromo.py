@@ -62,11 +62,11 @@ class TESSTargetPixelModeler(object):
 
         self.time = TPF.time
 
-        self.tic_id = self.tpf.targetid
+        self.tic_id = self.tpf.target_id
 
         self.tpf_wcs = self.tpf.wcs
         self.tpf_med_data = np.median(self.tpf.flux.value, axis=0)
-        self.tpf_med_err = np.sum(self.tpf.flux_err.value**2., axis=0)/len(self.tpf.flux_err) 
+        self.tpf_err = np.sum(self.tpf.flux_err.value**2., axis=0)/len(self.tpf.flux_err) 
 
         self.tpf_flux = self.tpf.flux.value
         self.tpf_flux_err = self.tpf.flux_err.value
@@ -263,15 +263,15 @@ class TESSTargetPixelModeler(object):
         source_sum_flux = np.sum(aperture * source_tpf )
         contam_sum_flux =np.sum(  aperture * contam_tpf )
         
-        return {'crowdsap': contam_sum_flux/total_sum_flux,
-                'flfrcsap': source_sum_flux/total_sum_flux,
-                'dilution': total_sum_flux/source_sum_flux, 
+        return {'CROWDSAP': contam_sum_flux/total_sum_flux,
+                'FLFRCSAP': source_sum_flux/total_sum_flux,
+                'dilution_factor': total_sum_flux/source_sum_flux, 
                 'med_tpf_bkg_aperture_flux':bkg_ap_flux, 
                 'tess_zeropoint_mag': 20.44-2.5*np.log10(self.bestfit_flux_scale) }   
 
 
 
-    def plot_tpf_model(self, plot_color='C1', logscale=True, vmin=None, vmax=None):
+    def plot_tpf_model(self, plot_color='C1'):
 
         star_rowcol = self._get_source_row_col()
         star_mags = self.catalog['Tmag'].to_numpy()
@@ -280,21 +280,12 @@ class TESSTargetPixelModeler(object):
         fig, (ax1,ax2, ax3) = plt.subplots(1,3, figsize=(6,3) , constrained_layout=True,sharex=True, sharey=True)
 
 
-        if vmin is None:
-            vmin = np.min(np.abs(self.bestfit_tpfmodel) )
-        if vmax is None:
-            vmax = np.max(self.bestfit_tpfmodel)
-
-        if logscale:
+        vmin = np.min(np.abs(self.bestfit_tpfmodel) )
+        vmax = np.max(self.bestfit_tpfmodel)
         
-            cax1=ax1.imshow(self.tpf_med_data, origin='lower', norm=mpl.colors.LogNorm(vmin=vmin,vmax=vmax), )
-            cax2=ax2.imshow(self.bestfit_tpfmodel, origin='lower', norm=mpl.colors.LogNorm(vmin=vmin,vmax=vmax), )
-        else:
-            cax1=ax1.imshow(self.tpf_med_data, origin='lower', vmin=vmin,vmax=vmax, )
-            cax2=ax2.imshow(self.bestfit_tpfmodel, origin='lower', vmin=vmin, vmax=vmax )
-
+        cax1=ax1.imshow(self.tpf_med_data, origin='lower', norm=mpl.colors.LogNorm(vmin=vmin,vmax=vmax), )
+        cax2=ax2.imshow(self.bestfit_tpfmodel, origin='lower', norm=mpl.colors.LogNorm(vmin=vmin,vmax=vmax), )
         cax3=ax3.imshow((self.bestfit_tpfmodel-self.tpf_med_data), origin='lower', cmap='coolwarm', )
-            
         
         plt.colorbar(ax=[ax1,ax2], mappable=cax1, location='bottom', label='Flux [e-/sec]', shrink=0.5 )
         #plt.colorbar(ax=ax2, mappable=cax2, location='bottom', label='Flux [e-/sec]')
@@ -322,7 +313,7 @@ class TESSTargetPixelModeler(object):
         return ax1,ax2,ax3
 
 
-    def get_optimal_aperture(self, snr_limit=5., **kwargs):
+    def get_optimal_aperture(self, snr_limit=1., **kwargs):
 
         source_tpf = self.generate_source_model(**kwargs)
         contam_tpf = self.generate_bkg_source_model(**kwargs)
@@ -355,12 +346,6 @@ class TESSTargetPixelModeler(object):
         return ws
 
 
-    def get_crowding_timeseries(self):
-
-        '''
-        under construction
-        '''
-        return 1. 
         
 
     def get_lc_timeseries(self, **kwargs):
