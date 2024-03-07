@@ -26,7 +26,11 @@ from .plotcromo import *
 def get_tic_sources(ticid, tpf_shape=[14,14]):
 
     pix_scale = 21.0
-    catalogTIC = Catalogs.query_object('TIC '+str(ticid), radius=Angle(np.max(tpf_shape) * pix_scale, "arcsec"), catalog="TIC")
+
+    try:
+        catalogTIC = Catalogs.query_object('TIC '+str(ticid), radius=Angle(np.max(tpf_shape) * pix_scale, "arcsec"), catalog="TIC")
+    except:
+        catalogTIC = Catalogs.query_object(str(ticid), radius=Angle(np.max(tpf_shape) * pix_scale, "arcsec"), catalog="TIC")
 
     return catalogTIC
 
@@ -51,25 +55,26 @@ def estimate_offset_gadient(tpfmodel, tpf, err=None):
 
 
 
-
-
-
 class TESSTargetPixelModeler(object):
 
     def __init__(self, TPF):
 
         self.tpf = TPF
 
-        self.time = TPF.time
-
         self.tic_id = self.tpf.targetid
+        
+        nan_mask = ~np.isnan(np.sum(np.sum(self.tpf.flux.value, axis=1), axis=1) )
+        self.nan_mask = nan_mask
+        self.time = TPF.time[nan_mask]
+        self.cadenceno = TPF.cadenceno[nan_mask]
+
 
         self.tpf_wcs = self.tpf.wcs
-        self.tpf_med_data = np.median(self.tpf.flux.value, axis=0)
-        self.tpf_med_err = np.sum(self.tpf.flux_err.value**2., axis=0)/len(self.tpf.flux_err) 
+        self.tpf_med_data = np.median(self.tpf.flux.value[nan_mask], axis=0)
+        self.tpf_med_err = np.sum(self.tpf.flux_err.value[nan_mask]**2., axis=0)/len(self.tpf.flux_err[nan_mask]) 
 
-        self.tpf_flux = self.tpf.flux.value
-        self.tpf_flux_err = self.tpf.flux_err.value
+        self.tpf_flux = self.tpf.flux.value[nan_mask]
+        self.tpf_flux_err = self.tpf.flux_err.value[nan_mask]
         
         
         self.prf = self._get_prfmodel()
@@ -77,6 +82,11 @@ class TESSTargetPixelModeler(object):
 
         self.row_ref = 0#self.tpf.hdu[1].header['1CRPX4']-self.tpf_med_data.shape[0]//2
         self.col_ref = 0#self.tpf.hdu[1].header['1CRPX4']-self.tpf_med_data.shape[1]//2
+
+
+    def from_tesscut(self, TPF):
+
+        return 1. 
         
     def _get_prfmodel(self, prf_dir=None):
 
@@ -84,8 +94,12 @@ class TESSTargetPixelModeler(object):
 
     def _get_tic_sources(self, directory=None, mag_lim=20.):
 
+        
         if directory is None:
-            catalogTIC = get_tic_sources(self.tic_id, tpf_shape=self.tpf_med_data.shape)
+            try:
+                catalogTIC = get_tic_sources(self.tic_id, tpf_shape=self.tpf_med_data.shape)
+            except:
+                catalogTIC = get_tic_sources(self.tic_id, tpf_shape=self.tpf_med_data.shape)
         
         mag_cut = catalogTIC['Tmag'] < mag_lim
         source_catalog = catalogTIC.to_pandas().loc[mag_cut]
@@ -164,7 +178,10 @@ class TESSTargetPixelModeler(object):
             star_row, star_col = source_xy[i]
             star_mag = source_mags[i]
 
-            scene += self.prf.locate(star_row-(self.row_ref-dx), star_col-(self.col_ref-dy), buffer_size) * 10.**(-0.4*(star_mag-20.44))             
+            try:
+                scene += self.prf.locate(star_row-(self.row_ref-dx), star_col-(self.col_ref-dy), buffer_size) * 10.**(-0.4*(star_mag-20.44))
+            except ValueError:
+                pass
 
         return scene[buffer:-buffer,buffer:-buffer]
 
@@ -221,7 +238,6 @@ class TESSTargetPixelModeler(object):
     def fit_tpf_model(self, use_err=True, **kwargs):
 
         
-        
         star_tpf_model = self._get_star_scene(**kwargs)
 
         # Linear Algebra Least Squares Fitting
@@ -264,7 +280,7 @@ class TESSTargetPixelModeler(object):
         contam_sum_flux =np.sum(  aperture * contam_tpf )
         
         return {'crowdsap': contam_sum_flux/total_sum_flux,
-                'flfrcsap': source_sum_flux/total_sum_flux,
+                'flfrcsap': source_sum_flux/np.sum(source_tpf),
                 'dilution': total_sum_flux/source_sum_flux, 
                 'med_tpf_bkg_aperture_flux':bkg_ap_flux, 
                 'tess_zeropoint_mag': 20.44-2.5*np.log10(self.bestfit_flux_scale) }   
@@ -277,7 +293,7 @@ class TESSTargetPixelModeler(object):
         star_mags = self.catalog['Tmag'].to_numpy()
 
 
-        fig, (ax1,ax2, ax3) = plt.subplots(1,3, figsize=(6,3) , constrained_layout=True,sharex=True, sharey=True)
+        fig, (ax1,ax2, ax3) = plt.subplots(1,3, figsize=(8,4) , constrained_layout=True,sharex=True, sharey=True)
 
 
         if vmin is None:
@@ -322,7 +338,7 @@ class TESSTargetPixelModeler(object):
         return ax1,ax2,ax3
 
 
-    def get_optimal_aperture(self, snr_limit=5., **kwargs):
+    def get_optimal_aperture(self, snr_limit=1., **kwargs):
 
         source_tpf = self.generate_source_model(**kwargs)
         contam_tpf = self.generate_bkg_source_model(**kwargs)
@@ -333,54 +349,181 @@ class TESSTargetPixelModeler(object):
 
         self.best_aperture = best_aperture
 
-        bkg_aperture = (bkg_tpf / np.sqrt(source_tpf+contam_tpf+bkg_tpf)) >1
+        bkg_aperture = ((source_tpf+contam_tpf) / np.sqrt(source_tpf+contam_tpf+bkg_tpf)) < 1.
         
         return best_aperture, bkg_aperture
 
 
 
 
-    def get_xy_timeseries(self, use_err=True, **kwargs):
+    def get_prf_xy_timeseries(self, use_err=True, **kwargs):
 
         if self.bestfit_tpfmodel is None:
             basemodel, _, _ = self.fit_tpf_model(use_err=use_err, )
         else:
             basemodel =  self.bestfit_tpfmodel
 
-        tpf_fluxes = self.tpf.flux.value
-        tpf_flux_errs = self.tpf.flux_err.value
+        tpf_fluxes = self.tpf_flux
+        tpf_flux_errs = self.tpf_flux_err
 
-        ws = [estimate_offset_gadient(basemodel, tpf_fluxes[i], tpf_flux_errs[i]) for i in tqdm(range(tpf_fluxes.shape[0]) )]
+        ws = [estimate_offset_gadient(basemodel, tpf_fluxes[i], tpf_flux_errs[i]).T[0] for i in range(tpf_fluxes.shape[0])]
+
+        #print(ws)
+        self.prf_dx, self.prf_dy = np.array(ws).T
         
         return ws
 
 
-    def get_crowding_timeseries(self):
+    def get_crowding_timeseries(self, aperture=None, ):
+
+        
+        
+
+        
+        source_tpf = self.generate_source_model(**kwargs)
+        contam_tpf = self.generate_bkg_source_model(**kwargs)
+
+        
+        
 
         '''
         under construction
         '''
+        return 1.
+
+    def get_sap_flux_timeseries(self,aperture=None, **kwargs):
+
+        if aperture is None:
+            best_aperture = self.get_optimal_aperture(**kwargs)
+        else:
+            best_aperture=aperture
+
+        try:
+            dx_t, dy_t = self.prf_dx, self.prf_dy
+        except:
+            dxdt =  self.get_prf_xy_timeseries(use_err=True, **kwargs)
+            dx_t, dy_t = np.array(dxdt).T
+
+
+
+        sapflux_timeseries = np.array([])
+        flfrc_sapflux_timeseries = np.array([])
+        contam_sapflux_timeseries = np.array([])
+        bkg_sapflux_timeseries = np.array([])
+       
+        
+        #flux_scale_factor, bkg_flux = w.T[0]
+        #fit_tpf_model = star_tpf_model*flux_scale_factor+bkg_flux
+
+        
+        tpf_fluxes = self.tpf_flux
+        tpf_flux_errs = self.tpf_flux_err
+        
+        #(sap_flux - np.median(sap_flux)*crowding['crowdsap']) / crowding['flfrcsap']
+
+        bkg_flux_array = np.ones_like(tpf_fluxes[0]).ravel()
+
+        for i in range(len(dx_t)):
+
+
+            source_tpf = self.generate_source_model(dx=dx_t[i], dy=dy_t[i],)
+            contam_tpf = self.generate_bkg_source_model(dx=dx_t[i], dy=dy_t[i],)
+            allstar_tpf = source_tpf+contam_tpf
+
+            contam_frac = np.sum(contam_tpf*best_aperture) / np.sum(allstar_tpf*best_aperture)
+            flux_frac = np.sum(source_tpf*best_aperture) / np.sum(source_tpf)
+
+            #print(sap_flux_i, contam_frac, flux_frac)
+
+            # Fit for the Bkg Flux
+            data = np.vstack(1./tpf_flux_errs[i].ravel()**2.)*np.vstack(tpf_fluxes[i].ravel())
+            A = np.vstack(1./tpf_flux_errs[i].reshape(-1)**2.)*np.vstack([allstar_tpf.reshape(-1), bkg_flux_array]).T
+            w = np.linalg.solve( A.T.dot(A) , A.T.dot(data) )
+
+            #print(w)
+            
+            zero_flux_i, bkg_i = w.T[0]
+
+            sap_flux_i = np.sum(best_aperture*tpf_fluxes[i])
+
+            sap_flux_bkg_sub = sap_flux_i - np.sum(bkg_i*best_aperture)
+            sap_flux_decrowd = sap_flux_bkg_sub * (1. - contam_frac)
+
+            sap_flux_frac_corr = sap_flux_decrowd/flux_frac
+
+            sapflux_timeseries = np.append(sapflux_timeseries, sap_flux_frac_corr)
+            flfrc_sapflux_timeseries = np.append(flfrc_sapflux_timeseries, flux_frac)
+            contam_sapflux_timeseries = np.array(contam_sapflux_timeseries, contam_frac)
+        
+
+        return sapflux_timeseries #flfrc_sapflux_timeseries, contam_sapflux_timeseries
+
+
+
+
+    def frame_solve(self, frame, dx=0, dy=0, n_bkg_terms=1):
+
+        source = self.generate_source_model(dx=dx,dy=dy)
+        source/=np.sum(source)
+        bkg_stars = self.generate_bkg_source_model(dx=dx,dy=dy)
+
+        bkg = np.ones_like(frame)
+
+        #bkg_x, bkg_y = np.meshgrid(frame.shape[0], frame.shape[1])
+
+        #bkg_terms = [bkg_x**n, bkg_y**n]
+
+        #[bkg_terms.append(bkg_x**n) for n in range(1, n_bkg_terms+1)]
+        #[bkg_terms.append(bkg_y**n) for n in range(1, n_bkg_terms+1)]
+            
+        A = np.vstack([source.ravel(),bkg_stars.ravel(),          
+                bkg.ravel()]).T
+
+        return np.linalg.solve(A.T.dot(A), A.T.dot(frame.ravel()))
+
+
+    def matrix_solve():
         return 1. 
         
 
-    def get_lc_timeseries(self, **kwargs):
+    def get_prf_flux_timeseries(self,  progress=False, **kwargs):
 
+        
         all_stars = self._get_star_scene(**kwargs)
         bkg = np.ones_like(all_stars)
 
         y=self.tpf_flux
 
-        def solve(all_stars, bkg, frame):
+        dxdt = self.get_prf_xy_timeseries()
+        dx_t, dy_t = np.array(dxdt).T
+        
+    
+        if progress:
+            from tqdm import tqdm
+            iterable = tqdm(np.arange(len(y) ).astype(int) )
+        else:
+            iterable = np.arange(len(y) ).astype(int)
+
+
+        ws = np.asarray([self.frame_solve(y[i], dx_t[i], dy_t[i], n_bkg_terms=2) for i in iterable])
+        
+        #for i, frame in iterable:
             
-            A = np.vstack([all_stars.ravel(),          
-                bkg.ravel()]).T
+        #    source = self.generate_source_model(dx=dx_t[i],dy=dy_t[i])
+        #    bkg_stars = self.generate_bkg_source_model(dx=dx_t[i],dy=dy_t[i])
+            
+        #    A = np.vstack([source.ravel(),bkg_stars.ravel(),          
+        #        bkg.ravel()]).T
 
-            return np.linalg.solve(A.T.dot(A), A.T.dot(frame.ravel()))            
+        #    ws_i = np.linalg.solve(A.T.dot(A), A.T.dot(frame.ravel()))
 
-        ws = np.asarray([solve(all_stars, bkg, frame) for frame in y])
+        #    ws = np.append(ws, ws_i)
+            
 
-        #model = np.asarray([A[:, :-1].dot(w[:-1]).reshape(y.shape[1:]) for w in ws])
+        #model = np.asarray([A[:, :-1].dot(w[:-1]).reshape(y.shape[1:]) for w in ws])self
 
-        return ws 
+        prf_flux, zero_point_flux, bkg_flux = ws.T
+
+        return prf_flux, zero_point_flux, bkg_flux, dx_t, dy_t
 
 
