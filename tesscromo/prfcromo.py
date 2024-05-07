@@ -2,12 +2,16 @@ import PRF
 import numpy as np
 
 from scipy.signal import fftconvolve
+import os 
 
+
+PKG_DIRECTORY = os.path.dirname(os.path.realpath(__file__))
+PRF_FILE_DIRECTORY = PKG_DIRECTORY + 'data/mastprf_fitsfiles/'
 
 
 class TESS_PRF_Model(object):
 
-    def __init__(self, camera, ccd, sector, column, row, localdatadir = None):
+    def __init__(self, camera, ccd, sector, column, row, localdatadir = PRF_FILE_DIRECTORY):
 
         #
         self.prf = PRF.TESS_PRF(camera, ccd, sector, column, row, localdatadir = localdatadir)
@@ -21,8 +25,8 @@ class TESS_PRF_Model(object):
         x=col
         y=row
         
-        os = prf_model.shape[0]
-        os_frac = 1./os
+        os_factor = prf_model.shape[0]
+        os_frac = 1./os_factor
     
         prf_size = prf_model.shape[2:]
 
@@ -159,6 +163,9 @@ class TPFSceneModeler(TESS_PRF_Model):
                 for k in range(len(cols)):
                     star_row = rows[k]+self.buffer_size
                     star_col = cols[k]+self.buffer_size
+
+                    if star_row<0 or star_row>buffered_size[0] or star_col<0 or star_col>buffered_size[0]:
+                        continue
 
                     
 
