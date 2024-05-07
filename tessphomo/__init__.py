@@ -1,1 +1,1 @@
-from .tesscromo import TESSTargetPixelModeler
+from .phomo import TESSTargetPixelModeler
