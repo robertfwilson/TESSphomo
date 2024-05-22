@@ -31,8 +31,6 @@ from .utils import *
 
 
 
-
-
 def get_tic_sources(ticid, tpf_shape=[14,14], mag_lim=20.):
 
     pix_scale = 21.0
@@ -88,6 +86,7 @@ def estimate_offset_gradient(model, data, err,return_all=False, add_terms=[], er
         return amp, dx_amp, dy_amp, c
     
     return dx_amp/amp, dy_amp/amp
+    #return dx_amp, dy_amp
 
 
 
@@ -105,7 +104,7 @@ class TESSTargetPixelModeler(object):
         nan_mask = ~np.isnan(np.sum(np.sum(self.tpf.flux.value, axis=1), axis=1) )
         self.nan_mask = nan_mask
         self.time = TPF.time[nan_mask]
-        self.cadenceno = TPF.cadenceno[nan_mask]
+        self.cadenceno = TPF.cadenceno[nan_mask] + TPF['FFIINDEX']
 
 
         self.tpf_wcs = self.tpf.wcs
@@ -143,11 +142,29 @@ class TESSTargetPixelModeler(object):
                 catalogTIC = get_tic_sources(self.tic_id, tpf_shape=self.tpf_med_data.shape)
         
         mag_cut = catalogTIC['Tmag'] < mag_lim
-        source_catalog = catalogTIC.to_pandas().loc[mag_cut]
+        source_catalog = catalogTIC.loc[mag_cut]
 
         self.catalog=source_catalog
 
-        return source_catalog 
+        return source_catalog
+
+
+    def recompute_Tmag_from_gaiadr2(self):
+
+
+        catalog_gaia = self.catalog
+        catalog_gaia['Tmag_orig'] = self.catalog['Tmag'].copy()
+        
+        bp_rp = catalog_gaia['gaiabp']-catalog_gaia['gaiarp']
+        Gmag =  catalog_gaia['GAIAmag']
+
+        tmag_new = Gmag - 0.00522555 * bp_rp**3. + 0.0891337 * bp_rp**2. - 0.633923*bp_rp + 0.0324473
+
+        catalog_gaia.loc[~np.isnan(tmag_new),'Tmag'] = catalog_gaia[~np.isnan(tmag_new)]
+
+        self.catalog = catalog_gaia
+
+        return catalog_gaia
 
 
     def generate_bkg_source_model(self, flux_scale=None, **kwargs):
@@ -364,7 +381,7 @@ class TESSTargetPixelModeler(object):
 
 
 
-    def plot_tpf_model(self, plot_color='C1', logscale=True, vmin=None, vmax=None, **kwargs):
+    def plot_tpf_model(self, plot_color='C1', logscale=True, vmin=None, vmax=None, plot_bkg_stars=False,**kwargs):
 
         star_rowcol = self._get_source_row_col()
         star_mags = self.catalog['Tmag'].to_numpy()
@@ -385,7 +402,9 @@ class TESSTargetPixelModeler(object):
             cax1=ax1.imshow(self.tpf_med_data, origin='lower', vmin=vmin,vmax=vmax, )
             cax2=ax2.imshow(self.bestfit_tpfmodel, origin='lower', vmin=vmin, vmax=vmax )
 
-        cax3=ax3.imshow((self.bestfit_tpfmodel-self.tpf_med_data), origin='lower', cmap='coolwarm', )
+        tpf_resids = (self.tpf_med_data-self.bestfit_tpfmodel)
+        max_resid = np.max(np.abs(tpf_resids)) 
+        cax3=ax3.imshow(tpf_resids, origin='lower', cmap='RdYlBu', vmin=-max_resid, vmax=max_resid)
             
         
         plt.colorbar(ax=[ax1,ax2], mappable=cax1, location='bottom', label='Flux [e-/sec]', shrink=0.5 )
@@ -397,7 +416,8 @@ class TESSTargetPixelModeler(object):
             ax.set_xticks([])
             ax.set_yticks([])
 
-            ax.scatter(star_rowcol.T[0]-(self.row_ref-self.bestfit_dx), star_rowcol.T[1]-self.col_ref-self.bestfit_dy, s=(star_mags-20.44)**2., marker='*', edgecolor='0.5', color='w' , zorder=5)
+            if plot_bkg_stars:
+                ax.scatter(star_rowcol.T[0]-(self.row_ref-self.bestfit_dx), star_rowcol.T[1]-self.col_ref-self.bestfit_dy, s=(star_mags-20.44)**2., marker='*', edgecolor='0.5', color='w' , )
             ax.scatter(star_rowcol.T[0][0]-(self.row_ref-self.bestfit_dx), star_rowcol.T[1][0]-self.col_ref-self.bestfit_dy, s=(star_mags[0]-20.44)**2., marker='*', edgecolor=plot_color, color='w' , zorder=5)
             plot_aperture(ax=ax, aperture_mask=self.get_optimal_aperture(**kwargs), mask_color=plot_color)
             plot_ne_arrow(ax=ax, x_0=self.tpf_med_data.shape[0]*0.15, y_0=self.tpf_med_data.shape[0]*0.8, 
@@ -405,7 +425,7 @@ class TESSTargetPixelModeler(object):
         
         ax1.set_title('Median TPF')
         ax2.set_title('Model TPF')
-        ax3.set_title('Model$-$Data')
+        ax3.set_title('Data$-$Model')
         ax1.set_xlim(-0.5, self.tpf_med_data.shape[0]-0.5)
         ax1.set_ylim(-0.5, self.tpf_med_data.shape[1]-0.5)
 
@@ -473,7 +493,7 @@ class TESSTargetPixelModeler(object):
 
 
 
-    def _get_bkg_model_terms(self, model_straps=False, gradient=True):
+    def _get_bkg_model_terms(self, model_straps=True, gradient=True, bkg_poly_order=2):
 
         tpfshape = self.tpf.flux.value.shape[1:]
         bkg_terms = []
@@ -482,8 +502,12 @@ class TESSTargetPixelModeler(object):
         if gradient:
 
             dx, dy = np.mgrid[:tpfshape[0], :tpfshape[1]]
-            bkg_terms.append(dx.ravel())
-            bkg_terms.append(dy.ravel())
+        
+            for i in range(1,bkg_poly_order+1):
+                bkg_terms.append(dx.ravel()**i)
+                bkg_terms.append(dy.ravel()**i)
+            
+            
 
         if model_straps:
 
@@ -501,10 +525,6 @@ class TESSTargetPixelModeler(object):
 
 
     def get_crowding_timeseries(self, aperture=None, ):
-
-        
-        
-
         
         source_tpf = self.generate_source_model(**kwargs)
         contam_tpf = self.generate_bkg_source_model(**kwargs)
@@ -617,7 +637,7 @@ class TESSTargetPixelModeler(object):
     def _calc_aperture_flux(self, aperture, data, source_scene, crowd_scene, bkg_scene):
 
         sap_flux = np.sum(data[aperture])
-        flfrcsap = np.sum(source_scene[aperture])/np.sum(source_scene)
+        flfrcsap = np.sum(source_scene[aperture])/np.sum(source_scene[1:-1,1:-1])
         crowdsap = np.sum(crowd_scene[aperture])
         bkgsap =  np.sum(bkg_scene[aperture])
         
@@ -671,7 +691,7 @@ class TESSTargetPixelModeler(object):
 
 
 
-    def get_corrected_LightCurve(self, progress=True, err_exponent=2.0, aperture=None, **kwargs):
+    def get_corrected_LightCurve(self, progress=True, err_exponent=0.0, aperture=None, bad_data_mask=None, **kwargs):
 
         '''
 
@@ -682,7 +702,7 @@ class TESSTargetPixelModeler(object):
 
 
         if aperture is None:
-            best_aperture = self.get_optimal_aperture(**kwargs)
+            best_aperture = self.get_optimal_aperture()
         else:
             best_aperture=aperture
 
@@ -692,9 +712,15 @@ class TESSTargetPixelModeler(object):
         try:
             dx_t, dy_t = self.prf_dx, self.prf_dy
         except:
-            dx_t, dy_t = self.get_prf_xy_timeseries(err_exponent=err_exponent)
+            dx_t, dy_t = self.get_prf_xy_timeseries(err_exponent=err_exponent, **kwargs)
 
-        nan_mask = np.isnan(dx_t)
+
+        if bad_data_mask is None:
+            mask = np.isfinite(dx_t)
+        else:
+            mask=bad_data_mask
+            mask &= np.isfinite(dx_t)
+        
 
         if progress:
             iterable = tqdm(np.arange(len(dx_t) ).astype(int) )
@@ -705,11 +731,21 @@ class TESSTargetPixelModeler(object):
         y=self.tpf_flux
         y_err = self.tpf_flux_err
         raw_results=[]
+
         
         for i in iterable:
 
+            if not(mask[i]):
+                raw_results.append([np.nan]*8)
+                continue
+                
+                
+
             source_scene =  self.generate_source_model(dx=dx_t[i],dy=dy_t[i], normalize=True)
             crowd_scene = self.generate_bkg_source_model(dx=dx_t[i],dy=dy_t[i], )
+
+            scene_model_terms = [source_scene.ravel(), crowd_scene.ravel()]+bkg_terms
+
 
             prf_fit_weights = self._fit_prf_flux(data=y[i], source_scene=source_scene,
                                              crowd_scene=crowd_scene, bkg_terms=bkg_terms,
@@ -725,27 +761,51 @@ class TESSTargetPixelModeler(object):
 
             sap_flux_i, flfrcsap_i, crowdsap_i, bkgsap_i = self._calc_aperture_flux(aperture=best_aperture,
                                                                            data=y[i],source_scene=source_scene,
-                                                                           crowd_scene=crowd_scene,
+                                                                           crowd_scene=crowd_scene*zero_point_flux_i,
                                                                             bkg_scene=bkg_scene)
 
+            sapflux_err_i = np.sqrt(np.sum((y_err[i][best_aperture])**2. ) )
+
+            scene = np.dot(np.transpose(scene_model_terms), np.vstack(prf_fit_weights)).reshape(y[i].shape)
+            scene_chi2_i = np.sum((scene-y[i])**2./y_err[i]**2.)/len(bkg_terms[0])
+
             
-            raw_results.append([prf_flux_i, zero_point_flux_i, sap_flux_i, flfrcsap_i, crowdsap_i, bkgsap_i])
+            raw_results.append([prf_flux_i, zero_point_flux_i, sap_flux_i, flfrcsap_i, crowdsap_i, bkgsap_i, sapflux_err_i, scene_chi2_i ])
+            
+
+        #print(scene_chi2_i)
+
+        #print( np.array(raw_results)[0] )
 
 
 
-        raw_prf_flux, zp_flux, sap_flux, flfrcsap, crowdsap, bkgsap = np.array(raw_results).T
+        raw_prf_flux, zp_flux, sap_flux, flfrcsap, crowdsap, bkgsap, sapflux_err, scene_chi2 = np.array(raw_results).T
 
         raw_cap_flux = sap_flux - (crowdsap + bkgsap)
-        raw_cap_flux /= flfrcsap
+        #raw_cap_flux /= flfrcsap
 
+         ## Check for bad data points
+        mask &= zp_flux!=0
+        mask &= np.isfinite(zp_flux)
+        mask &= np.isfinite(bkgsap)
+        mask &= np.isfinite(dx_t)
+        mask &= np.isfinite(dy_t)
 
-        corr_prf_flux = correct_flux(raw_prf_flux,  [zp_flux, bkgsap, dx_t, dy_t])
-        corr_cap_flux = correct_flux(raw_cap_flux,  [zp_flux, bkgsap, dx_t, dy_t])
+        corr_prf_flux_masked = correct_flux(raw_prf_flux[mask], flux_err=sapflux_err[mask],
+                                            systematics=[zp_flux[mask], bkgsap[mask], dx_t[mask], dy_t[mask], scene_chi2[mask]])
+        corr_cap_flux_masked = correct_flux(raw_cap_flux[mask], flux_err= sapflux_err[mask],
+                                            systematics=[zp_flux[mask], bkgsap[mask], dx_t[mask], dy_t[mask]])
 
+        corr_prf_flux = np.ones_like(mask)*np.nan
+        corr_cap_flux = np.ones_like(mask)*np.nan
+
+        corr_prf_flux[mask] = corr_prf_flux_masked
+        corr_cap_flux[mask] = corr_cap_flux_masked
+        
         flux_unit=self.tpf.flux.unit
         
-        lc_table = QTable([self.cadenceno, self.tpf.time, corr_prf_flux, corr_cap_flux, raw_prf_flux*flux_unit, raw_cap_flux*flux_unit, sap_flux*flux_unit, zp_flux, flfrcsap, crowdsap*flux_unit, bkgsap*flux_unit, dx_t, dy_t],
-           names=('cadenceno','time', 'corr_prf_flux', 'corr_cap_flux', 'raw_prf_flux', 'raw_capflux', 'sapflux', 'zp_flux_scale', 'flfrcsap','crowd_sapflux','bkg_sapflux', 'col_offset', 'row_offset'), )
+        lc_table = QTable([self.cadenceno, self.tpf.time, corr_prf_flux, corr_cap_flux, raw_prf_flux*flux_unit, raw_cap_flux*flux_unit, sap_flux*flux_unit, zp_flux, flfrcsap, crowdsap*flux_unit, bkgsap*flux_unit, sapflux_err*flux_unit, dx_t, dy_t, scene_chi2, mask],
+           names=('cadenceno','time', 'corr_prf_flux', 'corr_dcapflux', 'raw_prf_flux', 'raw_dcapflux', 'sapflux', 'zp_flux_scale', 'flfrcsap','crowd_sapflux','bkg_sapflux', 'sapflux_err','col_offset', 'row_offset', 'scene_chi2','bad_prf_mask'), )
         
         
         return lc_table
@@ -829,23 +889,27 @@ class TESSTargetPixelModeler(object):
 
 def correct_flux(raw_flux, systematics, flux_err=None, nterms=4, err_exponent=2.):
 
+
+    raw_flux = raw_flux
+        
     dm = DesignMatrix(np.vstack(systematics).T)
     dm = dm.pca(nterms).append_constant()
 
     X = dm.X
 
     if not(flux_err is None):
-        Xw = X.T.dot(X / flux_err ** err_exponent)
-        B = np.dot(X.T, raw_flux/flux_err**err_exponent )
+        Xw = X.T.dot(X / np.vstack(flux_err) ** err_exponent)
+        B = np.dot(X.T, raw_flux/(flux_err**err_exponent) )
     else:
         Xw=X.T.dot(X)
         B=np.dot(X.T, raw_flux)
 
     w = np.linalg.solve(Xw, B).T
 
-    corr_flux = raw_flux/X.dot(w)
+    system_model = X.dot(w)
+    corr_flux = raw_flux/system_model
     
-    return corr_flux
+    return corr_flux#, system_model
         
 def distance(x, coords):
     return np.sqrt( (x[0]-coords[:,0])**2. + (x[1]-coords[:,1])**2. )        

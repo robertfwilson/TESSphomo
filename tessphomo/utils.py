@@ -8,11 +8,12 @@ import numpy as np
 def matrix_solve(model, data, data_err=None, power=2.):
 
     A = np.vstack(model).T
-    x = np.vstack(data.ravel())
+    x = data.ravel()[:,None]
 
     if not(data_err is None):
-        A = np.vstack(1./data_err.ravel()**power)*A
-        x = np.vstack(1./data_err.ravel()**power)*x
+        x_err = data_err.ravel()[:,None]
+        A =1./x_err**power * A
+        x = 1./x_err**power * x
 
     w = np.linalg.solve( A.T.dot(A) , A.T.dot(x) )
 
