@@ -1,0 +1,23 @@
+import numpy as np
+
+from astroquery.mast import Catalogs
+from astropy.coordinates import SkyCoord, Angle
+
+
+
+
+
+def get_tic_sources(ticid, tpf_shape=[15,15], mag_lim=20.):
+
+    pix_scale = 21.0
+
+    try:
+        catalogTIC = Catalogs.query_object('TIC '+str(ticid), radius=Angle((np.max(tpf_shape)/1.5+5) * pix_scale, "arcsec"), catalog="TIC")
+    except:
+        catalogTIC = Catalogs.query_object(str(ticid), radius=Angle((np.max(tpf_shape)/1.5+5.) * pix_scale, "arcsec"), catalog="TIC")
+
+    mag_cut = catalogTIC['Tmag'] < mag_lim
+    source_catalog = catalogTIC.to_pandas().loc[mag_cut]
+
+
+    return source_catalog

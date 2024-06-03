@@ -22,35 +22,43 @@ def matrix_solve(model, data, data_err=None, power=2.):
 
 
 
-def make_corr_lc(raw_fluxes, systematics, raw_flux_errs=None, nterms=4, err_exponent=2.):
 
-    #prf_flux = lc['raw_prf_flux']
-    #cap_flux = lc['raw_capflux']
-    #systematics = np.array([lc['zp_flux_scale'], 
-    #                        lc['bkg_sapflux'],
-    #                       lc['col_offset'], 
-    #lc['row_offset']])
 
-    corr_fluxes = []
+def make_quality_mask(quality_bitmask, qflags, ):
 
-    dm = DesignMatrix(np.vstack(systematics).T)
-    dm = dm.pca(nterms).append_constant()
+    '''
 
-    X = dm.X
+    0: AttitudeTweak = 1 
+    1: SafeMode = 2 
+    2: CoarsePoint = 4 
+    3: EarthPoint = 8 
+    4: Argabrightening = 16 
+    5: Desat = 32
+    6: ApertureCosmic = 64 
+    7: ManualExclude = 128 
+    8: Discontinuity = 256
+    9: ImpulsiveOutlier = 512 
+    10: CollateralCosmic = 1024 
+    11: Straylight = 2048
+
+    #: The second stray light flag is set automatically by Ames/SPOC based on background level thresholds.
+    12: Straylight2 = 4096
     
-    for i,f in enumerate(raw_fluxes):
+    # See TESS Science Data Products Description Document
+    13: PlanetSearchExclude = 8192
+    14: BadCalibrationExclude = 16384
 
-        if not(flux_err is None):
-
-            flux_err = np.ones_like(lc['prf_flux'])
-            Xw = X.T.dot(X / flux_err[:, None] ** err_exponent)    
-            B_prf = np.dot(X.T, lc['prf_flux']/flux_err )
-
-    w_prf = np.linalg.solve(Xw, B_prf).T
+    # Set in the sector 20 data release notes
+    15: InsufficientTargets = 32768
     
-    prf_flux_corr = prf_flux/X.dot(w_prf)
-    cap_flux_corr = cap_flux/X.dot(w_cap)
+    '''
+    
+    quality_mask = (quality_bitmask & int(sum([2**q for q in qflags]))) == 0
 
-    return prf_flux_corr, cap_flux_corr
+    return quality_mask
 
+
+
+def mag_to_flux(mag, zp=20.44):
+    return 10.**(-0.4*(mag-zp))
 

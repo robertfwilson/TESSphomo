@@ -221,7 +221,7 @@ class TPFSceneModeler(TESS_PRF_Model):
         bs = self.buffer_size
         buffered_size = self.shape[0]+2*bs, self.shape[1]+2*bs
         #print(buffered_size, self.center)
-        buffered_scene = self._interp(-dx+self.center[0]+bs, -dy+self.center[1]+bs, flux=1., tpf_size=buffered_size, renormalize=False)
+        buffered_scene = self._interp(dx+self.center[0]+bs, dy+self.center[1]+bs, flux=1., tpf_size=buffered_size, renormalize=False)
         return buffered_scene[bs:-bs,bs:-bs]*flux_scale
 
 
@@ -253,6 +253,17 @@ def calculate_scene_model_fftconvolve(prf_model, star_cols, star_rows, star_flux
                                                         star_rows=new_rows+dx[row_i], star_flux=star_flux,tpfsize=buffered_size)
 
     return full_scene_prf_model
+
+
+
+def bilinear_interp_weights(xfrac, yfrac):
+
+    w_ll = (1.-xfrac)*(1.-yfrac)
+    w_lu = (1.-xfrac)*yfrac
+    w_ul = xfrac*(1.-yfrac)
+    w_uu = xfrac*yfrac
+    
+    return w_ll, w_lu, w_ul, w_uu
 
 
 def calculate_scene_convolve(prf_model, star_cols, star_rows, star_flux, tpfsize):
@@ -301,13 +312,15 @@ def calculate_scene_convolve(prf_model, star_cols, star_rows, star_flux, tpfsize
     
         prf_colfrac = (tpfcolfrac-pixel_samples[colbelow])/d_samp
         prf_rowfrac = (tpfrowfrac-pixel_samples[rowbelow])/d_samp
-    
-        c_up_r_up = 0.25 * ( (1.-prf_colfrac) + (1.-prf_rowfrac) )
-        c_up_r_lo = 0.25 * ( (1.-prf_colfrac) + prf_rowfrac )
-        c_lo_r_up = 0.25 * ( prf_colfrac + (1.-prf_rowfrac) )
-        c_lo_r_lo = 0.25 * ( prf_colfrac + prf_rowfrac )
 
-        sum_weights = (c_up_r_up+c_up_r_lo+c_lo_r_up+c_lo_r_lo)
+        c_up_r_up, c_up_r_lo, c_lo_r_up, c_lo_r_lo = bilinear_interp_weights(prf_colfrac, prf_rowfrac)
+    
+        #c_up_r_up = 0.25 * ( (1.-prf_colfrac) + (1.-prf_rowfrac) )
+        #c_up_r_lo = 0.25 * ( (1.-prf_colfrac) + prf_rowfrac )
+        #c_lo_r_up = 0.25 * ( prf_colfrac + (1.-prf_rowfrac) )
+        #c_lo_r_lo = 0.25 * ( prf_colfrac + prf_rowfrac )
+
+        #sum_weights = (c_up_r_up+c_up_r_lo+c_lo_r_up+c_lo_r_lo)
         
         #if np.sum([c_up_r_up, c_up_r_lo, c_lo_r_up, c_lo_r_lo])!=1:
         #    print([c_up_r_up, c_up_r_lo, c_lo_r_up, c_lo_r_lo], np.sum([c_up_r_up, c_up_r_lo, c_lo_r_up, c_lo_r_lo]) )
@@ -319,10 +332,10 @@ def calculate_scene_convolve(prf_model, star_cols, star_rows, star_flux, tpfsize
         #    continue
 
         
-        scene_model_weights[rowbelow, colbelow, tpfrowint, tpfcolint] += (c_lo_r_lo * star_flux[i] / sum_weights)
-        scene_model_weights[rowabove, colbelow, tpfrowint, tpfcolint] += (c_lo_r_up * star_flux[i] / sum_weights)
-        scene_model_weights[rowbelow, colabove, tpfrowint, tpfcolint] += (c_up_r_lo * star_flux[i]/ sum_weights)
-        scene_model_weights[rowabove, colabove, tpfrowint, tpfcolint] += (c_up_r_up * star_flux[i]/ sum_weights)
+        scene_model_weights[rowbelow, colbelow, tpfrowint, tpfcolint] += c_lo_r_lo * star_flux[i] #/ sum_weights)
+        scene_model_weights[rowabove, colbelow, tpfrowint, tpfcolint] += c_lo_r_up * star_flux[i] #/ sum_weights)
+        scene_model_weights[rowbelow, colabove, tpfrowint, tpfcolint] += c_up_r_lo * star_flux[i]#/ sum_weights)
+        scene_model_weights[rowabove, colabove, tpfrowint, tpfcolint] += c_up_r_up * star_flux[i]#/ sum_weights)
 
 
 
