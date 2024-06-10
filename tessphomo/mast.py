@@ -1,5 +1,4 @@
 import numpy as np
-
 from astroquery.mast import Catalogs
 from astropy.coordinates import SkyCoord, Angle
 import lightkurve as lk
@@ -25,7 +24,7 @@ def get_tic_sources(ticid, tpf_shape=[15,15], mag_lim=20.):
 
 
 
-def retrieve_tess_cutout_w_lightkurve(cutout_size, sector, ticid=None, coords=None):
+def retrieve_tess_ffi_cutout_from_mast(cutout_size, sector, ticid=None, coords=None):
 
     if ticid is None:
         if coords is None:
@@ -42,6 +41,11 @@ def retrieve_tess_cutout_w_lightkurve(cutout_size, sector, ticid=None, coords=No
 
     return tpf
 
+
+
+def retrieve_tess_ffi_cutout_from_aws(cutout_size, sector, ticid=None, coords=None):
+
+    return 1. 
 
 
 

@@ -96,18 +96,24 @@ class TESSTargetPixelModeler(object):
         #nan_mask &= np.array([all(f.ravel()>0.) for f in TPF.flux ] )
 
         nan_mask = make_quality_mask(self.quality_bitmask, qflags)
+
+        tpfdata =  TPF._hdu[1].data
+        time_values= tpfdata['TIME']
+        flux_values = tpfdata['FLUX']
+        flux_err_values = tpfdata['FLUX_ERR']
         
         self.nan_mask = nan_mask
-        self.time = TPF.time[nan_mask]
-        self.cadenceno = TPF.cadenceno[nan_mask] + TPF.get_header()['FFIINDEX']
+        self.time = Time(time_values[nan_mask], scale='tdb', format='btjd')
+        
+        self.cadenceno = np.arange(len(time_values))[nan_mask] + TPF.get_header()['FFIINDEX']
 
 
         self.tpf_wcs = self.tpf.wcs
-        self.tpf_med_data = np.nanmedian(self.tpf.flux.value[nan_mask], axis=0)
-        self.tpf_med_err = np.nanmedian(self.tpf.flux_err.value[nan_mask], axis=0)#/len(self.tpf.flux_err[nan_mask]) 
-
-        self.tpf_flux = self.tpf.flux.value[nan_mask]
-        self.tpf_flux_err = self.tpf.flux_err.value[nan_mask]
+        self.tpf_med_data = np.nanmedian(flux_values[nan_mask], axis=0)
+        self.tpf_med_err = np.nanmedian(flux_err_values[nan_mask], axis=0)
+        
+        self.tpf_flux = flux_values[nan_mask]
+        self.tpf_flux_err = flux_err_values[nan_mask]
         
         
         #self.prf = self._get_prfmodel()
@@ -329,24 +335,29 @@ class TESSTargetPixelModeler(object):
         
         star_tpf_model = self._get_star_scene(**kwargs)
 
-        # Linear Algebra Least Squares Fitting
-        data = np.vstack(self.tpf_med_data.ravel( ) )        
-        A = np.vstack([star_tpf_model.ravel(), np.ones_like(star_tpf_model).ravel()]).T
+        data = np.vstack(self.tpf_med_data.ravel( ) )
+
+        bkg_terms =  self._get_bkg_model_terms()
+        
+        A_0 = np.vstack([star_tpf_model.ravel() ] + bkg_terms ).T
 
         if use_err:
             err = self.tpf_med_err
-            A = np.vstack(1./err.ravel()**2.)*A
+            A = np.vstack(1./err.ravel()**2.)*A_0
             data = np.vstack(1./err.ravel()**2.)*data
+        else:
+            A=A_0
             
         w = np.linalg.solve( A.T.dot(A) , A.T.dot(data) )
         
-        flux_scale_factor, bkg_flux = w.T[0]
+        flux_scale_factor, bkg_flux = w.T[0, :2]
 
         fit_tpf_model = star_tpf_model*flux_scale_factor+bkg_flux
 
         self.bestfit_tpfmodel = fit_tpf_model
         self.bestfit_flux_scale = flux_scale_factor
         self.bestfit_bkg_flux = bkg_flux
+        self.bestfit_med_tpfmodel = A_0.dot(w).reshape(star_tpf_model.shape)
 
         return fit_tpf_model, flux_scale_factor, bkg_flux
 
@@ -392,12 +403,12 @@ class TESSTargetPixelModeler(object):
         if logscale:
         
             cax1=ax1.imshow(self.tpf_med_data, origin='lower', norm=mpl.colors.LogNorm(vmin=vmin,vmax=vmax), )
-            cax2=ax2.imshow(self.bestfit_tpfmodel, origin='lower', norm=mpl.colors.LogNorm(vmin=vmin,vmax=vmax), )
+            cax2=ax2.imshow(self.bestfit_med_tpfmodel, origin='lower', norm=mpl.colors.LogNorm(vmin=vmin,vmax=vmax), )
         else:
             cax1=ax1.imshow(self.tpf_med_data, origin='lower', vmin=vmin,vmax=vmax, )
-            cax2=ax2.imshow(self.bestfit_tpfmodel, origin='lower', vmin=vmin, vmax=vmax )
+            cax2=ax2.imshow(self.bestfit_med_tpfmodel, origin='lower', vmin=vmin, vmax=vmax )
 
-        tpf_resids = (self.tpf_med_data-self.bestfit_tpfmodel)
+        tpf_resids = (self.tpf_med_data-self.bestfit_med_tpfmodel)
         max_resid = np.max(np.abs(tpf_resids)) 
         cax3=ax3.imshow(tpf_resids, origin='lower', cmap='RdYlBu', vmin=-max_resid, vmax=max_resid)
             
@@ -412,8 +423,8 @@ class TESSTargetPixelModeler(object):
             ax.set_yticks([])
 
             if plot_bkg_stars:
-                ax.scatter(star_rowcol.T[0]-(self.row_ref-self.bestfit_dx), star_rowcol.T[1]-self.col_ref-self.bestfit_dy, s=(star_mags-20.44)**2., marker='*', edgecolor='0.5', color='w' , )
-            ax.scatter(star_rowcol.T[0][0]-(self.row_ref-self.bestfit_dx), star_rowcol.T[1][0]-self.col_ref-self.bestfit_dy, s=(star_mags[0]-20.44)**2., marker='*', edgecolor=plot_color, color='w' , zorder=5)
+                ax.scatter(star_rowcol.T[0]-(self.row_ref), star_rowcol.T[1]-self.col_ref, s=(star_mags-20.44)**2., marker='*', edgecolor='0.5', color='w' , )
+            ax.scatter(star_rowcol.T[0][0]-(self.row_ref), star_rowcol.T[1][0]-self.col_ref, s=(star_mags[0]-20.44)**2., marker='*', edgecolor=plot_color, color='w' , zorder=5)
             plot_aperture(ax=ax, aperture_mask=self.get_optimal_aperture(**kwargs), mask_color=plot_color)
             plot_ne_arrow(ax=ax, x_0=self.tpf_med_data.shape[0]*0.15, y_0=self.tpf_med_data.shape[0]*0.8, 
                           len_pix=self.tpf_med_data.shape[0]*0.1, wcs=self.tpf_wcs)
@@ -429,14 +440,25 @@ class TESSTargetPixelModeler(object):
         return ax1,ax2,ax3
 
 
-    def get_optimal_aperture(self, n_min_pix=2, n_max_pix=50,  **kwargs):
+    def get_optimal_aperture(self, n_min_pix=2, n_max_pix=50, save_aperture=True, source_flux_scale=1., **kwargs):
 
-        source_tpf = self.generate_source_model(normalize=False, **kwargs).ravel()
-        contam_tpf = self.generate_bkg_source_model(**kwargs).ravel()
+        if self.bestfit_tpfmodel is None:
+            basemodel, flux_scale, bkg_flux = self.fit_med_tpf_model( )
+            
+        else:
+            flux_scale =  self.bestfit_flux_scale
+            bkg_flux = self.bestfit_bkg_flux
+
+            
+        contam_tpf = self.generate_bkg_source_model(**kwargs).ravel() 
+        source_tpf = self.generate_source_model(normalize=False, **kwargs).ravel()  * source_flux_scale
+        bkg_tpf = bkg_flux * np.ones_like(contam_tpf)
+
 
         texp = (self.tpf._hdu[1].header['EXPOSURE'] * u.day).to(u.second).value
         source_tpf *= texp
         contam_tpf *= texp
+        bkg_tpf *= texp
         
         #gebkg_tpf = (np.zeros_like(contam_tpf)+self.bestfit_bkg_flux).ravel()
 
@@ -444,20 +466,23 @@ class TESSTargetPixelModeler(object):
         #cumulative_snr = source_tpf / np.sqrt(source_tpf+contam_tpf+bkg_tpf)
         sorted_pixels = np.argsort(source_tpf)[::-1]
 
-        cumulative_snr = np.cumsum(source_tpf[sorted_pixels]**2.) / np.sqrt( np.cumsum(source_tpf[sorted_pixels]**2. + contam_tpf[sorted_pixels]**2) )
+        cumulative_snr = np.cumsum(source_tpf[sorted_pixels]) / np.sqrt( np.cumsum(source_tpf[sorted_pixels] + contam_tpf[sorted_pixels] + bkg_tpf[sorted_pixels], ) )
 
         n_good_pixels_snr = np.argmax(cumulative_snr) + 2
+
     
         n_good_pixels_snr = min(n_good_pixels_snr, n_max_pix)
         n_good_pixels_snr = max(n_good_pixels_snr, n_min_pix)
 
         
         aperture_mask = np.zeros_like(source_tpf).astype(bool)
+
+        n_good_pixels_snr=int(n_good_pixels_snr)
         aperture_mask[sorted_pixels[:n_good_pixels_snr]] = True
         
 
-        
-        self.best_aperture = aperture_mask.reshape(self.tpf_flux.shape[1:])
+        if save_aperture:
+            self.best_aperture = aperture_mask.reshape(self.tpf_flux.shape[1:])
 
         #bkg_aperture = ((source_tpf+contam_tpf) / np.sqrt(source_tpf+contam_tpf+bkg_tpf)) < 1.
         
@@ -466,10 +491,10 @@ class TESSTargetPixelModeler(object):
 
 
 
-    def get_prf_xy_timeseries(self, use_err=True, err_exponent=2., **bkg_model_terms):
+    def get_prf_xy_timeseries(self, use_err=True, err_exponent=2., mask_source=True, **bkg_model_terms):
 
         if self.bestfit_tpfmodel is None:
-            basemodel, _, _ = self.fit_med_tpf_model(use_err=use_err, )
+            basemodel, _, _ = self.fit_med_tpf_model(use_err=True, )
         else:
             basemodel =  self.bestfit_tpfmodel
 
@@ -480,8 +505,13 @@ class TESSTargetPixelModeler(object):
 
         model_terms = [gx.ravel(), gy.ravel(), basemodel.ravel(), ] + bkg_terms
         
-        tpf_fluxes = self.tpf_flux
-        tpf_flux_errs = self.tpf_flux_err
+        tpf_fluxes = self.tpf_flux.copy()
+        tpf_flux_errs = self.tpf_flux_err.copy()
+
+        
+        if mask_source:
+            source_mask = self.get_optimal_aperture(n_min_pix=5., source_flux_scale=10., save_aperture=False)
+            tpf_flux_errs[:,source_mask] = np.inf
 
         ws = [matrix_solve(model_terms, tpf_fluxes[i], tpf_flux_errs[i], power=err_exponent) for i in range(tpf_fluxes.shape[0])]
 
@@ -508,8 +538,6 @@ class TESSTargetPixelModeler(object):
                 for j in range(0,i+1):
                     bkg_terms.append( dx_ravel**j * dy_ravel**(i-j))
             
-            
-
         if model_straps:
 
             col_0 = self.tpf.column
@@ -679,7 +707,7 @@ class TESSTargetPixelModeler(object):
 
 
 
-    def get_corrected_LightCurve(self, progress=True, err_exponent=1.0, aperture=None, bad_data_mask=None, assume_catalog_mag=False, **kwargs):
+    def get_corrected_LightCurve(self, err_exponent=1.0, aperture=None, bad_data_mask=None, assume_catalog_mag=False, recompute_scene_motion=False, progress=True,   **kwargs):
 
         '''
 
@@ -697,10 +725,14 @@ class TESSTargetPixelModeler(object):
         all_stars = self._get_star_scene()
         bkg_terms = self._get_bkg_model_terms(**kwargs)        
 
-        try:
-            dx_t, dy_t = self.prf_dx, self.prf_dy
-        except:
+        if recompute_scene_motion:
             dx_t, dy_t = self.get_prf_xy_timeseries(err_exponent=err_exponent, **kwargs)
+
+        else:            
+            try:
+                dx_t, dy_t = self.prf_dx, self.prf_dy
+            except:
+                dx_t, dy_t = self.get_prf_xy_timeseries(err_exponent=err_exponent, **kwargs)
 
 
         if bad_data_mask is None:
