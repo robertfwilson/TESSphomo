@@ -835,7 +835,7 @@ class TESSTargetPixelModeler(object):
 
 
 
-    def get_deblended_PRF_lightcurves(self, min_sep=0.1, mag_lim = 17., ):
+    def get_deblended_PRF_lightcurves(self, min_sep=0.5, mag_lim = 17., ):
 
         allstar_mags = self.catalog['Tmag'].to_numpy()
         allstar_xy = self._get_source_row_col()
