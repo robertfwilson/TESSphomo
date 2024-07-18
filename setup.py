@@ -25,6 +25,7 @@ setup(
     url='https://github.com/robertfwilson/TESSphomo',
     author='Robby Wilson',
     author_email='robert.f.wilson@nasa.gov',
+    license='MIT',
     zip_safe=False,
     packages=['TESSphomo'],
     install_requires=[
