@@ -18,7 +18,7 @@ except:
 
 setup(
     name='TESSphomo',
-    version=TESSSPHOMO_VERSIONING,
+    version=TESSPHOMO_VERSIONING,
     description='TESS PHOtomoeter MOdeler',
     long_description=long_description,
     long_description_content_type='text/markdown',
