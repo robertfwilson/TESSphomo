@@ -21,7 +21,7 @@ setup(
     author_email='robert.f.wilson@nasa.gov',
     license='MIT',
     zip_safe=False,
-    packages=['TESSphomo'],
+    packages=['tessphomo'],
     install_requires=[
         'TESS_PRF',
         'lightkurve'
