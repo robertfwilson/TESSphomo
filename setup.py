@@ -1,12 +1,6 @@
 from setuptools import setup
 from os import path
 
-# Pull wotan version from single source of truth file
-try:  # Python 2
-    execfile(path.join("tessphomo", 'version.py'))
-except:  # Python 3
-    exec(open(path.join("tessphomo", 'version.py')).read())
-
 # If Python3: Add "README.md" to setup. 
 # Useful for PyPI (pip install wotan). Irrelevant for users using Python2
 try:
@@ -18,7 +12,7 @@ except:
 
 setup(
     name='TESSphomo',
-    version=TESSPHOMO_VERSIONING,
+    version='0.2',
     description='TESS PHOtomoeter MOdeler',
     long_description=long_description,
     long_description_content_type='text/markdown',
