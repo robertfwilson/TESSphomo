@@ -155,14 +155,17 @@ class TPFSceneModeler(TESS_PRF_Model):
         self.center = tpfshape[0]//2+.5, tpfshape[1]//2+.5
 
 
-    def _get_prf_model(self, camera, ccd, sector, ref_col, ref_row, prf_dir=PRF_FILE_DIRECTORY ):
+    def _get_prf_model(self, camera, ccd, sector, ref_col, ref_row, prf_dir=PRF_FILE_DIRECTORY, trim_outside=False ):
 
         #if sector<4:
         #    prf_dir+='/start_s0001/'
         #else:
         #    prf_dir+='/start_s0004/'
         #return PRF.TESS_PRF(camera, ccd, sector, ref_col, ref_row, localdatadir=prf_dir)
-        return TESS_PRF_Model(camera, ccd, sector, ref_col, ref_row, localdatadir=prf_dir)
+
+        model = TESS_PRF_Model(camera, ccd, sector, ref_col, ref_row, localdatadir=prf_dir)
+        
+        return model
         
     def _make_scene_model(self, cols=None, rows=None, mags=None, tpfshape=None):
 
