@@ -845,7 +845,7 @@ class TESSTargetPixelModeler(object):
         
         flux_unit=self.tpf.flux.unit
         
-        lc_table = QTable([self.cadenceno, self.time, corr_prf_flux, corr_cap_flux, raw_prf_flux*flux_unit, raw_cap_flux*flux_unit, sap_flux*flux_unit, zp_flux, flfrcsap, crowdsap*flux_unit, bkgsap*flux_unit, sapflux_err*flux_unit, dx_t, dy_t, scene_chi2, mask],
+        lc_table = QTable([self.cadenceno, self.time, corr_prf_flux*flux_unit, corr_cap_flux*flux_unit, raw_prf_flux*flux_unit, raw_cap_flux*flux_unit, sap_flux*flux_unit, zp_flux, flfrcsap, crowdsap*flux_unit, bkgsap*flux_unit, sapflux_err*flux_unit, dx_t, dy_t, scene_chi2, mask],
            names=('cadenceno','time', 'cal_prf_flux', 'cal_cap_flux', 'raw_prf_flux', 'raw_cap_flux', 'sapflux', 'zp_flux_scale', 'flfrcsap','crowd_sapflux','bkg_sapflux', 'sapflux_err','col_offset', 'row_offset', 'scene_chi2','bad_prf_mask'), )
         
         
