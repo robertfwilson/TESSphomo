@@ -34,10 +34,6 @@ from .utils import *
 
 
 
-
-
-
-
 def estimate_offset_gadient_nomore(tpfmodel, tpf, err=None):
 
     
@@ -1064,7 +1060,8 @@ def correct_flux(raw_flux, systematics, flux_err=None, do_pca=False, nterms=4, e
         corr_flux = (raw_flux - system_model) + f_0
 
     else:
-        corr_flux = raw_flux/system_model
+        f_0 = w[-1]
+        corr_flux = f_0 * (raw_flux/system_model)
     
     return corr_flux, system_model
         
