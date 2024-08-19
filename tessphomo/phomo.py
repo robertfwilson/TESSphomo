@@ -758,11 +758,13 @@ class TESSTargetPixelModeler(object):
         raw_results=[]
 
         systematics = []
+        n_systematics = len(bkg_terms) + 1
         
         for i in iterable:
 
             if not(mask[i]):
                 raw_results.append([np.nan]*8)
+                systematics.append([np.nan]*n_systematics)
                 continue
                 
                 
@@ -820,7 +822,7 @@ class TESSTargetPixelModeler(object):
         mask &= np.isfinite(dx_t)
         mask &= np.isfinite(dy_t)
 
-        all_systematics = np.concatenate([np.array(systematics).T, [dx_t[mask], dy_t[mask]]])
+        all_systematics = np.concatenate([np.array(systematics).T, [dx_t, dy_t]])
 
 
         
