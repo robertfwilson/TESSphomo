@@ -217,7 +217,7 @@ class TESSTargetPixelModeler(object):
     def _get_star_scene(self, **kwargs):
 
         if self.allstar_tpf_modeler is None:
-            print('... building scene model with {} stars'.format(len(self.catalog)))
+            #print('... building scene model with {} stars'.format(len(self.catalog)))
             star_row_col = self._get_source_row_col()
             star_mags = self.catalog['Tmag'].to_numpy()
             allstar_tpf_modeler = self._generate_tpf_scene_modeler(star_row_col, star_mags, )
