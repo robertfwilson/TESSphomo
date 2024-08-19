@@ -70,8 +70,8 @@ def estimate_offset_gradient(model, data, err,return_all=False, add_terms=[], er
     if return_all:
         return amp, dx_amp, dy_amp, c
     
-    #return dx_amp/amp, dy_amp/amp
-    return dx_amp, dy_amp
+    return dx_amp/amp, dy_amp/amp
+    #return dx_amp, dy_amp
 
 
 
@@ -520,7 +520,7 @@ class TESSTargetPixelModeler(object):
 
         ws = [matrix_solve(model_terms, tpf_fluxes[i], tpf_flux_errs[i], power=err_exponent) for i in range(tpf_fluxes.shape[0])]
 
-        dx, dy = -np.array(ws).T[0, :2, :]
+        dx, dy = np.array(ws).T[0, :2, :]
         self.prf_dx, self.prf_dy = dx, dy
         
         return dx, dy
@@ -809,7 +809,6 @@ class TESSTargetPixelModeler(object):
 
         raw_prf_flux, zp_flux, sap_flux, flfrcsap, crowdsap, bkgsap, sapflux_err, scene_chi2 = np.array(raw_results).T
         
-        all_systematics = np.concatenate([np.array(systematics).T, [dx_t, dy_t]])
 
         raw_cap_flux = sap_flux - (crowdsap + bkgsap)
         raw_cap_flux /= flfrcsap
@@ -820,6 +819,9 @@ class TESSTargetPixelModeler(object):
         mask &= np.isfinite(bkgsap)
         mask &= np.isfinite(dx_t)
         mask &= np.isfinite(dy_t)
+
+        all_systematics = np.concatenate([np.array(systematics).T, [dx_t[mask], dy_t[mask]]])
+
 
         
 
@@ -980,6 +982,7 @@ class TESSTargetPixelModeler(object):
         y_err = self.tpf_flux_err
         raw_results=[]
 
+        n_terms = len(bkg_model_terms) + len(source_ids) + 1
     
         for i in iterable:
 
@@ -988,13 +991,15 @@ class TESSTargetPixelModeler(object):
                 frame_err = self.tpf_flux_err[i]
             
                 bkg_star_model = bkg_scene_modeler.interpolate_scene(dx=dx_t[i], dy=dy_t[i]).ravel( )
-                source_star_models = [mod.interpolate_scene(dx=dx_t[i], dy=dy_t[i]).ravel( ) for mod in source_star_modelers]
+                source_star_models = [mod.interpolate_scene(dx=dx_t[i], dy=dy_t[i]).ravel() for mod in source_star_modelers]
             
                 model = source_star_models + [bkg_star_model] + bkg_model_terms
                 w_i = matrix_solve(model, frame, frame_err, power=err_exponent)
+
+
                 
             except:
-                w_i = [np.nan]*(A.shape[1])
+                w_i = [[np.nan]]*n_terms
 
             raw_results.append(w_i)
 
@@ -1021,7 +1026,7 @@ class TESSTargetPixelModeler(object):
 
             f_i = raw_fluxes[i]
 
-            corr_flux, systematics_model = correct_flux(f_i, systematics,assume_catalog_mag = assume_catalog_mag, mag=source_mags[i])
+            corr_flux, systematics_model = correct_flux(f_i[mask], systematics[:,mask],assume_catalog_mag = assume_catalog_mag, mag=source_mags[i])
         
             results[ticid] = {'row':source_xy[i][1], 'col':source_xy[i][0], 'mag':source_mags[i],
                               'raw_prf_flux':raw_fluxes[i], 'cal_prf_flux':corr_flux, 'systematics_model':systematics_model }

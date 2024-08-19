@@ -175,6 +175,8 @@ class TPFSceneModeler(TESS_PRF_Model):
             mags = self.source_mags
             tpfshape=self.shape
 
+        
+        
         size_x, size_y = tpfshape
         buffered_size = (size_y+2*self.buffer_size, size_x+2*self.buffer_size)
 
@@ -224,7 +226,7 @@ class TPFSceneModeler(TESS_PRF_Model):
         bs = self.buffer_size
         buffered_size = self.shape[0]+2*bs, self.shape[1]+2*bs
         #print(buffered_size, self.center)
-        buffered_scene = self._interp(dx+self.center[0]+bs, dy+self.center[1]+bs, flux=1., tpf_size=buffered_size, renormalize=False)
+        buffered_scene = self._interp(-dy+self.center[0]+bs, -dx+self.center[1]+bs, flux=1., tpf_size=buffered_size, renormalize=False)
         return buffered_scene[bs:-bs,bs:-bs]*flux_scale
 
 
@@ -339,7 +341,6 @@ def calculate_scene_convolve(prf_model, star_cols, star_rows, star_flux, tpfsize
         scene_model_weights[rowabove, colbelow, tpfrowint, tpfcolint] += c_lo_r_up * star_flux[i] #/ sum_weights)
         scene_model_weights[rowbelow, colabove, tpfrowint, tpfcolint] += c_up_r_lo * star_flux[i]#/ sum_weights)
         scene_model_weights[rowabove, colabove, tpfrowint, tpfcolint] += c_up_r_up * star_flux[i]#/ sum_weights)
-
 
 
     scene_model = np.zeros(shape=tpfsize, dtype=np.float64)
