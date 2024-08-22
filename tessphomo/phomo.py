@@ -11,7 +11,7 @@ from matplotlib import patches
 from tqdm import tqdm
 
 import lightkurve as lk
-from lightkurve.correctors import DesignMatrix
+from lightkurve.correctors.designmatrix import DesignMatrix, DesignMatrixCollection, create_spline_matrix
 
 
 from astropy.coordinates import SkyCoord, Angle
@@ -80,7 +80,7 @@ def estimate_offset_gradient(model, data, err,return_all=False, add_terms=[], er
 
 class TESSTargetPixelModeler(object):
 
-    def __init__(self, TPF, mag_lim=20., input_catalog=None, qflags=[0,1,3,5,7,11,14,15]):
+    def __init__(self, TPF, mag_lim=20., input_catalog=None, qflags=[0,1,3,5,7,11,14,15], bad_pixel_mask=None):
 
         self.tpf = TPF
 
@@ -112,6 +112,12 @@ class TESSTargetPixelModeler(object):
         
         self.tpf_flux = flux_values[nan_mask]
         self.tpf_flux_err = flux_err_values[nan_mask]
+
+        self.bad_pixel_mask = bad_pixel_mask
+        if not(bad_pixel_mask is None):
+            self.tpf_flux_err[:, ~bad_pixel_mask] = np.inf
+
+        
         
         
         #self.prf = self._get_prfmodel()
@@ -503,7 +509,8 @@ class TESSTargetPixelModeler(object):
         else:
             basemodel =  self.bestfit_tpfmodel
 
-
+        basemodel = self._get_star_scene()
+        
         gx, gy = np.gradient(basemodel)
         
         bkg_terms = self._get_bkg_model_terms(**bkg_model_terms)
@@ -554,7 +561,15 @@ class TESSTargetPixelModeler(object):
                     col_i[:, i] = np.ones(tpfshape[1])
                     bkg_terms.append(col_i.ravel())
 
-        return bkg_terms
+
+        # Check that none of the bkg terms coincide completely with the bad pixel mask to avoid SingularMatrixErrors
+        if self.bad_pixel_mask is None:
+            return bkg_terms
+        
+        bad_pixel_mask = self.bad_pixel_mask.copy().ravel()
+        good_bkg_terms = [b for b in bkg_terms if np.dot(b,bad_pixel_mask)!=0]   
+        
+        return good_bkg_terms
 
 
 
@@ -712,7 +727,8 @@ class TESSTargetPixelModeler(object):
 
 
 
-    def get_corrected_LightCurve(self, err_exponent=1.0, aperture=None, bad_data_mask=None, assume_catalog_mag=False, recompute_scene_motion=False, progress=True,  **kwargs):
+    def get_corrected_LightCurve(self, err_exponent=1.0, aperture=None, bad_data_mask=None, assume_catalog_mag=False,
+                                 recompute_scene_motion=False, progress=True, use_spline=False, spline_spacing=2.5,  **kwargs):
 
         '''
 
@@ -834,10 +850,14 @@ class TESSTargetPixelModeler(object):
 
         corr_prf_flux_masked, prf_instrument_model = correct_flux(raw_prf_flux[mask], flux_err=sapflux_err[mask],
                                                                   systematics=all_systematics[:,mask],
-                                                                  assume_catalog_mag=assume_catalog_mag, mag=float(self.catalog['Tmag'][0]) )
+                                                                  assume_catalog_mag=assume_catalog_mag,
+                                                                  mag=float(self.catalog['Tmag'][0]), time=self.time[mask].value,
+                                                                  use_spline=use_spline, spline_spacing=spline_spacing)
         corr_cap_flux_masked, cap_instrument_model = correct_flux(raw_cap_flux[mask],flux_err= sapflux_err[mask],
                                                                  systematics=all_systematics[:,mask],
-                                                                 assume_catalog_mag=assume_catalog_mag, mag=float(self.catalog['Tmag'][0]))
+                                                                 assume_catalog_mag=assume_catalog_mag,
+                                                                  mag=float(self.catalog['Tmag'][0]), time=self.time[mask].value,
+                                                                  use_spline=use_spline, spline_spacing=spline_spacing)
                                                                   
         
         
@@ -1039,16 +1059,26 @@ class TESSTargetPixelModeler(object):
     
 
 
-def correct_flux(raw_flux, systematics, flux_err=None, do_pca=False, nterms=4, err_exponent=2., assume_catalog_mag=False, mag=None):
+def correct_flux(raw_flux, systematics, flux_err=None, time=None, do_pca=False, nterms=4, err_exponent=2., assume_catalog_mag=False, mag=None,
+                 use_spline=False, spline_spacing=2.5, spline_degree=3):
 
         
     dm = DesignMatrix(np.vstack(systematics).T)
 
     if do_pca:
-        dm = dm.pca(nterms).append_constant()
+        dm = dm.pca(nterms)
     else:
-        dm = dm.standardize().append_constant()
+        dm = dm.standardize()
+        nterms = len(systematics)
 
+    if use_spline:
+            
+        dm_spline = create_spline_matrix(time, knots=list(np.arange(time[1], time[-1], spline_spacing)), include_intercept=False, degree=spline_degree)
+        dm = DesignMatrixCollection([dm, dm_spline]).to_designmatrix()
+
+
+    dm=dm.append_constant()
+    
     X = dm.X
 
     if not(flux_err is None):
@@ -1060,15 +1090,19 @@ def correct_flux(raw_flux, systematics, flux_err=None, do_pca=False, nterms=4, e
 
     w = np.linalg.solve(Xw, B).T
 
-    system_model = X.dot(w)
+    system_model = X[:,:nterms].dot(w[:nterms])
+    flux_model = X[:,nterms:].dot(w[nterms:])
 
+    
     if assume_catalog_mag and not(mag is None):
         f_0 = mag_to_flux(mag, )
-        corr_flux = (raw_flux - system_model) + f_0
+        corr_flux = (raw_flux - system_model) - np.median(raw_flux)  + f_0
+        #print(np.mean(flux_model))
+
 
     else:
-        f_0 = w[-1]
-        corr_flux = f_0 * (raw_flux/system_model)
+        f_0 = flux_model
+        corr_flux = (raw_flux - system_model) #+ f_0 #f_0 * (raw_flux/system_model)
     
     return corr_flux, system_model
         

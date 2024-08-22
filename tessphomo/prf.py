@@ -199,17 +199,22 @@ class TPFSceneModeler(TESS_PRF_Model):
                     star_mag = mags[k]
                     try:
                         #scene_model[i,j]+=self.prf.locate(star_row+yi, star_col+xi, buffered_size) * 10.**(-0.4*(star_mag-self.zeropoint_mag))
-                        scene_model[i,j]+= self.prf._interp(star_row+xi, star_col+yi, 1., buffered_size) * 10.**(-0.4*(star_mag-self.zeropoint_mag))
+                        scene_model[i,j]+= self.prf._interp(star_col+xi, star_row+yi, 1., buffered_size) * 10.**(-0.4*(star_mag-self.zeropoint_mag))
                     except ValueError:
                         print(star_row, star_col, )
-                        scene_model[i,j]+= self.prf._interp(star_row+xi, star_col+yi, flux=1., tpf_size=buffered_size) * 10.**(-0.4*(star_mag-self.zeropoint_mag))
+                        scene_model[i,j]+= self.prf._interp(star_col+xi, star_row+yi, flux=1., tpf_size=buffered_size) * 10.**(-0.4*(star_mag-self.zeropoint_mag))
                         pass
 
         return scene_model
 
 
-    def _make_scene_model_convolve(self, cols, rows, mags, tpfshape):
+    def _make_scene_model_convolve(self, cols=None, rows=None, mags=None, tpfshape=None):
 
+        if cols is None:
+            cols=self.source_cols
+            rows=self.source_rows
+            mags = self.source_mags
+            tpfshape=self.shape
 
         star_fluxes =  10.**(-0.4*(np.array(mags)-self.zeropoint_mag))
         
