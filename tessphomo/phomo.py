@@ -1060,7 +1060,7 @@ class TESSTargetPixelModeler(object):
 
 
 def correct_flux(raw_flux, systematics, flux_err=None, time=None, do_pca=False, nterms=4, err_exponent=2., assume_catalog_mag=False, mag=None,
-                 use_spline=False, spline_spacing=2.5, spline_degree=3):
+                 use_spline=True, spline_spacing=2.5, spline_degree=3):
 
         
     dm = DesignMatrix(np.vstack(systematics).T)
@@ -1072,8 +1072,11 @@ def correct_flux(raw_flux, systematics, flux_err=None, time=None, do_pca=False, 
         nterms = len(systematics)
 
     if use_spline:
+
+        dt= (time[-1]-time[0])%spline_spacing
             
-        dm_spline = create_spline_matrix(time, knots=list(np.arange(time[1], time[-1], spline_spacing)), include_intercept=False, degree=spline_degree)
+        dm_spline = create_spline_matrix(time, knots=list(np.arange(time[0]+dt/2., time[-1], spline_spacing)),
+                                         include_intercept=False, degree=spline_degree)
         dm = DesignMatrixCollection([dm, dm_spline]).to_designmatrix()
 
 
