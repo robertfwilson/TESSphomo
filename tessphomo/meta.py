@@ -1,6 +1,12 @@
 import numpy as np
 
-# The CCD Columns affecged by Straps, as well as the adjacent pixels to each colum. Includes the convention from the 44 cirtual columns. n
+
+
+TESS_ZEROPOINT_MAG = 20.5279
+
+
+
+# The CCD Columns affected by Straps, as well as the adjacent pixels to each colum. Includes the convention from the 44 cirtual columns. n
 FFI_STRAP_COLS=np.array([ 120,  121,  122,  123,  124,  125,  126,  127,  128,  129,  130,
         131,  248,  249,  250,  251,  252,  253,  254,  255,  256,  257,
         258,  259,  376,  377,  378,  379,  380,  381,  382,  383,  384,

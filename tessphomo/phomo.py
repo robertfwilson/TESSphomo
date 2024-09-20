@@ -28,7 +28,7 @@ from copy import deepcopy
 from .mast import get_tic_sources
 from .plot import *
 from .prf import TPFSceneModeler
-from .meta import FFI_STRAP_COLS
+from .meta import FFI_STRAP_COLS, TESS_ZEROPOINT_MAG
 from .utils import *
 
 
@@ -187,15 +187,20 @@ class TESSTargetPixelModeler(object):
             self.generate_source_model()
             bkg_tpf_modeler = deepcopy(self.allstar_tpf_modeler)
 
-            zp =  self.source_tpf_modeler.zeropoint_mag
-            flux_scale = 10**(0.4*(zp-self.catalog['Tmag'][0]))
+            #star_row_col = self._get_source_row_col()
+            #star_mags = self.catalog['Tmag'].to_numpy()
 
-            source_model = self.source_tpf_modeler.model * flux_scale
-            allstar_model =  self.allstar_tpf_modeler.model 
+            flux_scale = mag_to_flux(self.catalog['Tmag'].to_numpy()[0])
 
-            bkg_tpf_modeler.model = allstar_model - source_model 
-            
+
+            source_model = self.source_tpf_modeler.model_data * flux_scale
+            allstar_model =  self.allstar_tpf_modeler.model_data 
+
+            bkg_tpf_modeler.model_data = allstar_model - source_model
+            bkg_tpf_modeler._recompute_scene_model()
+
             self.bkg_tpf_modeler = bkg_tpf_modeler
+            #self.bkg_tpf_modeler = self._generate_tpf_scene_modeler(star_row_col[1:], star_mags[1:], )
 
         bkg_source_tpfmodel = self.bkg_tpf_modeler.interpolate_scene(**kwargs)
         
@@ -206,7 +211,7 @@ class TESSTargetPixelModeler(object):
 
         if self.source_tpf_modeler is None:
             star_row_col = self._get_source_row_col()
-            star_mags=[20.44]
+            star_mags=[TESS_ZEROPOINT_MAG]
             source_tpf_modeler = self._generate_tpf_scene_modeler(star_row_col[:1], star_mags, )
             self.source_tpf_modeler = source_tpf_modeler
         
@@ -263,7 +268,7 @@ class TESSTargetPixelModeler(object):
         sector = self.tpf.sector
         ref_col = self.tpf.column
         ref_row=self.tpf.row
-        source_rows, source_cols = source_xy.T
+        source_cols, source_rows = source_xy.T
         tpfshape = self.tpf.flux.shape[1:]
         
         return TPFSceneModeler(cam, ccd, sector, ref_col, ref_row, source_cols, source_rows, source_mags,
@@ -283,7 +288,7 @@ class TESSTargetPixelModeler(object):
 
         for i in range(len(source_xy)):
 
-            star_row, star_col = source_xy[i]
+            star_col, star_row = source_xy[i]
             star_mag = source_mags[i]
 
             try:
@@ -451,7 +456,7 @@ class TESSTargetPixelModeler(object):
         return ax1,ax2,ax3
 
 
-    def get_optimal_aperture(self, n_min_pix=2, n_max_pix=80, save_aperture=True, source_flux_scale=1., **kwargs):
+    def get_optimal_aperture(self, n_min_pix=2, n_max_pix=100, save_aperture=True, source_flux_scale=1., **kwargs):
 
         if self.bestfit_tpfmodel is None:
             basemodel, flux_scale, bkg_flux = self.fit_med_tpf_model( )
@@ -502,12 +507,12 @@ class TESSTargetPixelModeler(object):
 
 
 
-    def get_prf_xy_timeseries(self, use_err=True, err_exponent=2., mask_source=True, **bkg_model_terms):
+    def get_prf_xy_timeseries_OLD(self, use_err=True, err_exponent=2., mask_source=True, **bkg_model_terms):
 
         if self.bestfit_tpfmodel is None:
             basemodel, _, _ = self.fit_med_tpf_model(use_err=True, )
-        else:
-            basemodel =  self.bestfit_tpfmodel
+        #else:
+        #    basemodel =  self.bestfit_tpfmodel
 
         basemodel = self._get_star_scene()
         
@@ -531,6 +536,55 @@ class TESSTargetPixelModeler(object):
         self.prf_dx, self.prf_dy = dx, dy
         
         return dx, dy
+
+    def get_prf_xy_timeseries(self, use_err=True, err_exponent=2., n_iterations=10, thresh=5e-3, mask_source=False, **bkg_model_kw):
+
+        f_data = self.tpf_flux.copy()
+        f_err = self.tpf_flux_err.copy()
+
+        if mask_source:
+            pixel_mask = self.get_optimal_aperture(source_flux_scale=10.0)
+            f_err[:,pixel_mask] = np.inf
+
+        n = 0
+        n_cadences = len(f_data)
+        drow_final = np.zeros(n_cadences)
+        dcol_final = np.zeros(n_cadences)
+    
+        bkg_model_terms = self._get_bkg_model_terms(**bkg_model_kw)
+
+        dx_max = np.inf
+
+        while n < n_iterations and dx_max>thresh:
+
+            if n==0:
+                scene_models = [self.allstar_tpf_modeler.interpolate_scene(dx=0,dy=0)]*n_cadences
+            else:
+                scene_models = [self.allstar_tpf_modeler.interpolate_scene(dx=drow_final[i],dy=dcol_final[i]) for i in range(n_cadences)]
+
+            ws=[]
+            for i in range(n_cadences):
+
+                scene_d_row, scene_d_col = np.gradient(scene_models[i])
+                model_terms = [scene_d_row.ravel(), scene_d_col.ravel(), scene_models[i].ravel()]  + bkg_model_terms
+
+                solution = matrix_solve(model=model_terms, data=f_data[i], data_err=f_err[i], power=err_exponent)
+
+                ws.append(solution)
+
+            drow_i, dcol_i, zp_scale = np.array(ws).T[0, :3, :]
+
+            dx_max = np.max(np.abs([drow_i, dcol_i]))
+        
+            drow_final+=drow_i
+            dcol_final+=dcol_i
+
+            n+=1
+
+        self.prf_dx, self.prf_dy = drow_final, dcol_final
+        
+        return drow_final, dcol_final
+
 
 
 
@@ -728,7 +782,8 @@ class TESSTargetPixelModeler(object):
 
 
     def get_corrected_LightCurve(self, err_exponent=1.0, aperture=None, bad_data_mask=None, assume_catalog_mag=False,
-                                 recompute_scene_motion=False, progress=True, use_spline=False, spline_spacing=2.5,  **kwargs):
+                                 recompute_scene_motion=False, progress=True, use_spline=False, spline_spacing=2.5,
+                                 do_pca=False, model_straps=True, bkg_poly_order=1,  **kwargs):
 
         '''
 
@@ -744,7 +799,7 @@ class TESSTargetPixelModeler(object):
             best_aperture=aperture
 
         all_stars = self._get_star_scene()
-        bkg_terms = self._get_bkg_model_terms(**kwargs)        
+        bkg_terms = self._get_bkg_model_terms(model_straps=model_straps, bkg_poly_order=bkg_poly_order)        
 
         if recompute_scene_motion:
             dx_t, dy_t = self.get_prf_xy_timeseries(err_exponent=err_exponent, **kwargs)
@@ -852,12 +907,13 @@ class TESSTargetPixelModeler(object):
                                                                   systematics=all_systematics[:,mask],
                                                                   assume_catalog_mag=assume_catalog_mag,
                                                                   mag=float(self.catalog['Tmag'][0]), time=self.time[mask].value,
-                                                                  use_spline=use_spline, spline_spacing=spline_spacing)
+                                                                  use_spline=use_spline, spline_spacing=spline_spacing,
+                                                                  do_pca=do_pca)
         corr_cap_flux_masked, cap_instrument_model = correct_flux(raw_cap_flux[mask],flux_err= sapflux_err[mask],
                                                                  systematics=all_systematics[:,mask],
                                                                  assume_catalog_mag=assume_catalog_mag,
                                                                   mag=float(self.catalog['Tmag'][0]), time=self.time[mask].value,
-                                                                  use_spline=use_spline, spline_spacing=spline_spacing)
+                                                                  use_spline=use_spline, spline_spacing=spline_spacing, do_pca=do_pca)
                                                                   
         
         
@@ -929,7 +985,7 @@ class TESSTargetPixelModeler(object):
 
 
         bkg_scene_modeler = self._generate_tpf_scene_modeler(bkg_xy, bkg_mags, )
-        source_star_modelers = [self._generate_tpf_scene_modeler(source_xy[i:i+1], np.array([20.44]), ) for i in tqdm(range(len(source_mags)) )]
+        source_star_modelers = [self._generate_tpf_scene_modeler(source_xy[i:i+1], np.array([TESS_ZEROPOINT_MAG]), ) for i in tqdm(range(len(source_mags)) )]
     
         bkg_model_terms = self._get_bkg_model_terms(gradient=True, model_straps=True)
 
@@ -950,7 +1006,7 @@ class TESSTargetPixelModeler(object):
 
 
 
-    def get_deblended_PRF_lightcurves(self, source_ids=[], err_exponent=2., model_straps=True, bkg_poly_order=1, assume_catalog_mag=True, recompute_scene_motion=False, progress=True, bad_data_mask=None):
+    def get_deblended_PRF_lightcurves(self, source_ids=[], err_exponent=2., model_straps=True, bkg_poly_order=2, assume_catalog_mag=True, recompute_scene_motion=False, progress=True, bad_data_mask=None, **detrend_kw):
 
 
         allstar_mags = self.catalog['Tmag'].to_numpy()
@@ -970,7 +1026,7 @@ class TESSTargetPixelModeler(object):
         deblended_ids = np.array(allstar_ids)[deblended_sources]
 
         bkg_scene_modeler = self._generate_tpf_scene_modeler(bkg_xy, bkg_mags, )
-        source_star_modelers = [self._generate_tpf_scene_modeler(source_xy[i:i+1], np.array([20.44]), ) for i in range(len(source_mags)) ]
+        source_star_modelers = [self._generate_tpf_scene_modeler(source_xy[i:i+1], np.array([TESS_ZEROPOINT_MAG]), ) for i in range(len(source_mags)) ]
     
         bkg_model_terms = self._get_bkg_model_terms(gradient=True, model_straps=model_straps, bkg_poly_order=bkg_poly_order)
 
@@ -1048,7 +1104,7 @@ class TESSTargetPixelModeler(object):
 
             f_i = raw_fluxes[i]
 
-            corr_flux, systematics_model = correct_flux(f_i[mask], systematics[:,mask],assume_catalog_mag = assume_catalog_mag, mag=source_mags[i])
+            corr_flux, systematics_model = correct_flux(f_i[mask], systematics[:,mask], assume_catalog_mag = assume_catalog_mag, mag=source_mags[i], **detrend_kw)
         
             results[ticid] = {'row':source_xy[i][1], 'col':source_xy[i][0], 'mag':source_mags[i],
                               'raw_prf_flux':raw_fluxes[i], 'cal_prf_flux':corr_flux, 'systematics_model':systematics_model }
@@ -1071,7 +1127,7 @@ def correct_flux(raw_flux, systematics, flux_err=None, time=None, do_pca=False, 
         dm = dm.standardize()
         nterms = len(systematics)
 
-    if use_spline:
+    if use_spline and not(time is None):
 
         dt= (time[-1]-time[0])%spline_spacing
             
