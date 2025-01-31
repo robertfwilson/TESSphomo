@@ -91,7 +91,7 @@ def get_source_catalog_ticid(tic_id: int,
         A DataFrame containing the catalog of sources that meet the criteria.
     """
     # Define the Vizier catalog with the desired columns and filters
-    Catalog = Vizier(columns=["TIC", "Tmag", "pmRA", "pmDEC", "ra", "dec", "RA_orig", "Dec_orig"],
+    Catalog = Vizier(columns=["TIC", "Tmag", "pmRA", "pmDEC", "ra", "dec", "RA_orig", "Dec_orig", "BPmag", "RPmag", "Gmag"],
                      column_filters={"Tmag": f"<{mag_lim}"}, row_limit=-1)
 
 
@@ -102,7 +102,7 @@ def get_source_catalog_ticid(tic_id: int,
         catalog='IV/39/tic82'
     )[0].to_pandas()
 
-    source_catalog.columns = ["ID", "Tmag", "pmRA", "pmDEC", "ra", "dec", "RA_orig", "Dec_orig"]
+    source_catalog.columns = ["ID", "Tmag", "pmRA", "pmDEC", "ra", "dec", "RA_orig", "Dec_orig","gaiabp", "gaiarp", "GAIAmag"]
     return source_catalog
 
 

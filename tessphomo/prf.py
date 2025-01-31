@@ -1,4 +1,4 @@
-import PRF
+#import PRF
 import numpy as np
 
 from glob import glob
@@ -102,7 +102,7 @@ class TESS_PRF(object):
     def _calculate_prf_model(self, extrapolate_wings=True, max_radius=6., nsigma=5.):
 
         '''
-        Take loaded prfdata and calulate an interpolatable modeluse it to define a splione model that can be interpolated
+        Take loaded prfdata and use it to define a splione model that can be interpolated
         
         '''
 
