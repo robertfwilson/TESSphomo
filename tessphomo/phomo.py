@@ -134,6 +134,8 @@ class TESSTargetPixelModeler(object):
         self.allstar_tpf_modeler = None
 
         
+
+        
         self.bestfit_tpfmodel = None
 
         
