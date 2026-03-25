@@ -71,7 +71,6 @@ def estimate_offset_gradient(model, data, err,return_all=False, add_terms=[], er
         return amp, dx_amp, dy_amp, c
     
     return dx_amp/amp, dy_amp/amp
-    #return dx_amp, dy_amp
 
 
 
@@ -80,7 +79,7 @@ def estimate_offset_gradient(model, data, err,return_all=False, add_terms=[], er
 
 class TESSTargetPixelModeler(object):
 
-    def __init__(self, TPF, mag_lim=20., input_catalog=None, qflags=[0,1,3,5,7,11,14,15], bad_pixel_mask=None):
+    def __init__(self, TPF, mag_lim=20., input_catalog=None, qflags=[0,1,3,5,7,11,14,15], bad_pixel_mask=None, prf_file_directory=None):
 
         self.tpf = TPF
 
@@ -89,7 +88,7 @@ class TESSTargetPixelModeler(object):
         self.quality_bitmask = TPF._hdu[1].data['QUALITY']
         self.qflags = qflags
         
-        
+        self.prf_file_directory = prf_file_directory
         #nan_mask = ~np.isnan(np.sum(np.sum(self.tpf.flux.value, axis=1), axis=1) )
         #nan_mask &= np.array([all(f.ravel()>0.) for f in TPF.flux ] )
 
@@ -274,9 +273,11 @@ class TESSTargetPixelModeler(object):
         ref_row=self.tpf.row
         source_cols, source_rows = source_xy.T
         tpfshape = self.tpf.flux.shape[1:]
+
+        prf_file_dir = self.prf_file_directory
         
         return TPFSceneModeler(cam, ccd, sector, ref_col, ref_row, source_cols, source_rows, source_mags,
-                               tpfshape=tpfshape, buffer_size=buffer )
+                               tpfshape=tpfshape, buffer_size=buffer , prf_file_dir=prf_file_dir)
     
     def _generate_tpf_scene(self, source_xy, source_mags, dx=0, dy=0, buffer=5):
 

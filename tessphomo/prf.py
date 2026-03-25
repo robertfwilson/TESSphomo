@@ -18,10 +18,11 @@ PRF_FILE_DIRECTORY = PKG_DIRECTORY + '/data/mastprf_fitsfiles/'
 
 class TESS_PRF(object):
 
-    def __init__(self, cam, ccd, sector, column, row, localdatadir = PRF_FILE_DIRECTORY, **trim_kw):
+    def __init__(self, cam, ccd, sector, column, row, localdatadir = None, **trim_kw):
 
         self.cam, self.ccd, self.sector, self.column, self.row = cam, ccd, sector, column, row
         self.oversamp = 9 #samples/pixel for TESS PRFs
+
 
         self.prfdata = self._load_prf_data(localdatadir)
 
@@ -33,6 +34,9 @@ class TESS_PRF(object):
                 
 
     def _load_prf_data(self, localdatadir=None):
+
+        if localdatadir is None:
+            localdatadir = PRF_FILE_DIRECTORY
 
         if self.sector < 4:
             localdatadir = localdatadir + 'start_s0001/'
@@ -102,7 +106,7 @@ class TESS_PRF(object):
     def _calculate_prf_model(self, extrapolate_wings=True, max_radius=6., nsigma=5.):
 
         '''
-        Take loaded prfdata and use it to define a splione model that can be interpolated
+        Take loaded prfdata and use it to define a spline model that can be interpolated
         
         '''
 
@@ -141,7 +145,10 @@ class TESS_PRF(object):
 
 class TESS_PRF_Model(object):
 
-    def __init__(self, camera, ccd, sector, column, row, localdatadir = PRF_FILE_DIRECTORY):
+    def __init__(self, camera, ccd, sector, column, row, localdatadir = None):
+
+        if localdatadir is None:
+            localdatadir = PRF_FILE_DIRECTORY
 
         if sector <4:
             localdatadir = localdatadir + 'start_s0001/'
@@ -260,10 +267,10 @@ class TESS_PRF_Model(object):
 class TPFSceneModeler(object):
 
     def __init__(self, camera, ccd, sector, ref_col, ref_row, source_cols, source_rows, source_mags, 
-                 tpfshape=(15,15), buffer_size=5):
+                 tpfshape=(15,15), buffer_size=5, prf_file_dir=None):
 
         self.cam, self.ccd, self.sector, self.ref_col, self.ref_row = camera, ccd, sector, ref_col, ref_row        
-        self.TESS_PRF = TESS_PRF(camera, ccd, sector, ref_col, ref_row)
+        self.TESS_PRF = TESS_PRF(camera, ccd, sector, ref_col, ref_row, localdatadir=prf_file_dir)
 
         self.zeropoint_mag = TESS_ZEROPOINT_MAG
         self.buffer_size=buffer_size
